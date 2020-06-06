@@ -24,11 +24,13 @@
   * }
   */
 
-class UDPZ
+
+WiFiClient client;
+
+class Client
 {
   public:
     UDPZ(const char* id, const char* name, const char* type, const char* version);
-    ~UDPZ();
 
     int16_t setup();
 

@@ -46,9 +46,18 @@ void ModuleCore::setup(String& id, String& type, String& version)
   } else {
     _setupModeSlave();
   }
+
+  xTaskCreatePinnedToCore(
+                    _loop,   /* função que implementa a tarefa */
+                    "_loop", /* nome da tarefa */
+                    10000,   /* número de palavras a serem alocadas para uso com a pilha da tarefa */
+                    NULL,    /* parâmetro de entrada para a tarefa (pode ser NULL) */
+                    1,       /* prioridade da tarefa (0 a N) */
+                    NULL,    /* referência para a tarefa (pode ser NULL) */
+                    0);      /* Qual core utiliar (o padrão é o 1) */
 }
 
-void ModuleCore::loop()
+void ModuleCore::_loop(void *pvParameters)
 {
   _loopResetButton();
 
@@ -59,7 +68,7 @@ void ModuleCore::loop()
   }
 }
 
-void _setupOta()
+void ModuleCore::_setupOta()
 {
   ArduinoOTA.setPort(3232);
   ArduinoOTA.setHostname("iotz.ota");
@@ -132,11 +141,21 @@ void _setupOta()
   ArduinoOTA.begin();
 }
 
+void ModuleCore::_loopOta()
+{
+  ArduinoOTA.handle();
+}
+
 // Cofig mode
 void ModuleCore::_setupConfigMode()
 {
   _setupConfigMode_wifi();
   _setupConfigMode_webServer();
+}
+
+void ModuleCore::_loopConfigMode()
+{
+  _loopConfigMode_webServer();
 }
 
 void ModuleCore::_setupConfigMode_wifi()
@@ -169,8 +188,6 @@ void ModuleCore::_setupConfigMode_webServer()
   String htmlIndex;
   String htmlSuccess;
 
-  server = new WebServer(80);
-
   // Init SPIFFS for load the index.html file
   SPIFFS.begin();
 
@@ -195,16 +212,16 @@ void ModuleCore::_setupConfigMode_webServer()
   }
 
   // Start the server
-  _webServer->on("/", HTTP_GET, std::bind([&htmlIndex]() {
-    _webServer->send(200, "text/html", _parseHTML(htmlIndex));
+  _webServer.on("/", HTTP_GET, std::bind([&htmlIndex]() {
+    _webServer.send(200, "text/html", _parseHTML(htmlIndex));
   });
 
-  _webServer->on("/", HTTP_POST, [&htmlSuccess]() {
-    String deviceName = _webServer->arg("device-name");
-    String ssid       = _webServer->arg("ssid");
-    String password   = _webServer->arg("password");
-    String serverIp   = _webServer->arg("server-ip");
-    String serverPort = _webServer->arg("server-port");
+  _webServer.on("/", HTTP_POST, [&htmlSuccess]() {
+    String deviceName = _webServer.arg("device-name");
+    String ssid       = _webServer.arg("ssid");
+    String password   = _webServer.arg("password");
+    String serverIp   = _webServer.arg("server-ip");
+    String serverPort = _webServer.arg("server-port");
 
     #ifdef MODULE_CAN_DEBUG
       Serial.print("Device name: ");
@@ -222,7 +239,7 @@ void ModuleCore::_setupConfigMode_webServer()
     Config.setServerPort(serverPort);
     Config.setDeviceMode(Modes::SLAVE);
 
-    _webServer->send(200, "text/html", _parseHTML(htmlSuccess));
+    _webServer.send(200, "text/html", _parseHTML(htmlSuccess));
 
     #ifdef MODULE_CAN_DEBUG
       Serial.println("Restarting...");
@@ -231,7 +248,12 @@ void ModuleCore::_setupConfigMode_webServer()
     ESP.restart();
   });
 
-  _webServer->begin();
+  _webServer.begin();
+}
+
+void ModuleCore::_loopConfigMode_webServer()
+{
+  _webServer.handleClient();
 }
 
 // Slave mode
@@ -279,6 +301,9 @@ void ModuleCore::_setupSlaveMode_wifi()
   #endif
 }
 
+void ModuleCore::_loopSlaveMode()
+{
+}
 
 // Button
 void ModuleCore::_setupResetButton()
