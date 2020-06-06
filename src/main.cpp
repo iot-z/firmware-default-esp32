@@ -17,6 +17,8 @@ void setup() {
   Module.setup(ID, TYPE, VERSION);
 
   Module.createDefaultAPI();
+
+  // Create your API here
 }
 
 void loop() {
