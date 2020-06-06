@@ -26,11 +26,11 @@ class ModuleCore
   public:
     ModuleCore();
 
-    String getId();
-    String getType();
-    String getVersion();
+    std::string getId();
+    std::string getType();
+    std::string getVersion();
 
-    void setup(String& id, String& type, String& version);
+    void setup(std::string& id, std::string& type, std::string& version);
     void loop();
 
     void send(const char* topic);
@@ -40,22 +40,24 @@ class ModuleCore
 
     void setResetButtonPin(uint16_t pin);
     void setLedStatusPin(uint16_t pin);
-    void setApPassword(String);
+    void setApPassword(std::string);
 
     void createArduinoApi();
 
     bool isConfigMode();
 
   private:
-    String _id;
-    String _type;
-    String _version;
+    std::string _id;
+    std::string _type;
+    std::string _version;
+
+    std::map<std::string, std::function<void(JsonObject& in, JsonObject& out)>> _events = 0;
 
     uint8_t _resetButtonPin = D1;
     uint8_t _ledStatusPin = LED_BUILTIN;
     uint8_t _apPassword = "123456789";
 
-    WebServer* webServer;
+    WebServer* _webServer;
 
     void _setupOta();
     void _setupConfigMode();
@@ -71,7 +73,10 @@ class ModuleCore
 
     bool _isFirstBoot();
 
-    String _parseHTML();
+    std::string _parseHTML();
+
+
+    void _onMessage(const char* topic, JsonObject& in, JsonObject& out);
 };
 
 #endif

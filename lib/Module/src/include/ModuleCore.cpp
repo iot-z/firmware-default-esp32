@@ -5,12 +5,12 @@
 
 #include "ModuleCore.h"
 
-enum Modes :char {
+long _startPressReset;
+
+const enum Modes :char {
   CONFIG = '0',
   SLAVE = '1',
 };
-
-long _startPressReset;
 
 ModuleCore::ModuleCore()
 {
@@ -195,16 +195,16 @@ void ModuleCore::_setupConfigMode_webServer()
   }
 
   // Start the server
-  webServer->on("/", HTTP_GET, std::bind([&htmlIndex]() {
-    webServer->send(200, "text/html", _parseHTML(htmlIndex));
+  _webServer->on("/", HTTP_GET, std::bind([&htmlIndex]() {
+    _webServer->send(200, "text/html", _parseHTML(htmlIndex));
   });
 
-  webServer->on("/", HTTP_POST, [&htmlSuccess]() {
-    String deviceName = webServer->arg("device-name");
-    String ssid       = webServer->arg("ssid");
-    String password   = webServer->arg("password");
-    String serverIp   = webServer->arg("server-ip");
-    String serverPort = webServer->arg("server-port");
+  _webServer->on("/", HTTP_POST, [&htmlSuccess]() {
+    String deviceName = _webServer->arg("device-name");
+    String ssid       = _webServer->arg("ssid");
+    String password   = _webServer->arg("password");
+    String serverIp   = _webServer->arg("server-ip");
+    String serverPort = _webServer->arg("server-port");
 
     #ifdef MODULE_CAN_DEBUG
       Serial.print("Device name: ");
@@ -222,7 +222,7 @@ void ModuleCore::_setupConfigMode_webServer()
     Config.setServerPort(serverPort);
     Config.setDeviceMode(Modes::SLAVE);
 
-    webServer->send(200, "text/html", _parseHTML(htmlSuccess));
+    _webServer->send(200, "text/html", _parseHTML(htmlSuccess));
 
     #ifdef MODULE_CAN_DEBUG
       Serial.println("Restarting...");
@@ -231,7 +231,7 @@ void ModuleCore::_setupConfigMode_webServer()
     ESP.restart();
   });
 
-  webServer->begin();
+  _webServer->begin();
 }
 
 // Slave mode
