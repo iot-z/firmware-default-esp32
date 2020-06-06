@@ -16,7 +16,7 @@ void setup() {
 
   Module.setup(ID, TYPE, VERSION);
 
-  Module.createDefaultAPI();
+  Module.createArduinoAPI();
 
   // Create your API here
 }
