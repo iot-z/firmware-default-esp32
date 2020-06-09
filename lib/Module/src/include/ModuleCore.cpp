@@ -7,10 +7,14 @@
 
 long _startPressReset;
 
-const enum Modes :char {
-  CONFIG = '0',
-  SLAVE = '1',
-};
+struct ModesStruct {
+  char CONFIG = '0';
+  char SLAVE = '1';
+} Modes;
+
+WebServer _webServer(80);
+
+Socket _socket;
 
 ModuleCore::ModuleCore()
 {
@@ -32,7 +36,7 @@ void ModuleCore::setup(String& id, String& type, String& version)
     #endif
 
     Config.clear(); // Clear EEPROM data
-    Config.setDeviceMode(Modes::CONFIG);
+    Config.setDeviceMode(Modes.CONFIG);
 
     #ifdef MODULE_CAN_DEBUG
       Serial.println("Restarting...");
@@ -42,29 +46,20 @@ void ModuleCore::setup(String& id, String& type, String& version)
   }
 
   if (isConfigMode()) {
-    _setupModeConfig();
+    _setupConfigMode();
   } else {
-    _setupModeSlave();
+    _setupSlaveMode();
   }
-
-  xTaskCreatePinnedToCore(
-                    _loop,   /* função que implementa a tarefa */
-                    "_loop", /* nome da tarefa */
-                    10000,   /* número de palavras a serem alocadas para uso com a pilha da tarefa */
-                    NULL,    /* parâmetro de entrada para a tarefa (pode ser NULL) */
-                    1,       /* prioridade da tarefa (0 a N) */
-                    NULL,    /* referência para a tarefa (pode ser NULL) */
-                    0);      /* Qual core utiliar (o padrão é o 1) */
 }
 
-void ModuleCore::_loop(void *pvParameters)
+void ModuleCore::loop()
 {
   _loopResetButton();
 
   if (isConfigMode()) {
-    _loopModeConfig();
+    _loopConfigMode();
   } else {
-    _loopModeSlave();
+    _loopSlaveMode();
   }
 }
 
@@ -163,7 +158,7 @@ void ModuleCore::_setupConfigMode_wifi()
   String deviceName = Config.getDeviceName();
 
   String ssid = "Module - ";
-  ssid += Device.TYPE;
+  ssid += _type;
   ssid += " (";
   ssid += deviceName[0] != '\0' ? deviceName : String("Unamed ") + String(random(0xffff), HEX);
   ssid += ")";
@@ -171,7 +166,7 @@ void ModuleCore::_setupConfigMode_wifi()
   WiFi.setHostname("iotz.local");
 
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(ssid, _apPassword);
+  WiFi.softAP(ssid.c_str(), _apPassword.c_str());
 
   #ifdef MODULE_CAN_DEBUG
     Serial.print("SSID: ");
@@ -212,11 +207,11 @@ void ModuleCore::_setupConfigMode_webServer()
   }
 
   // Start the server
-  _webServer.on("/", HTTP_GET, std::bind([&htmlIndex]() {
+  _webServer.on("/", HTTP_GET, [&]() {
     _webServer.send(200, "text/html", _parseHTML(htmlIndex));
   });
 
-  _webServer.on("/", HTTP_POST, [&htmlSuccess]() {
+  _webServer.on("/", HTTP_POST, [&]() {
     String deviceName = _webServer.arg("device-name");
     String ssid       = _webServer.arg("ssid");
     String password   = _webServer.arg("password");
@@ -237,7 +232,7 @@ void ModuleCore::_setupConfigMode_webServer()
     Config.setNetworkPassword(password);
     Config.setServerIp(serverIp);
     Config.setServerPort(serverPort);
-    Config.setDeviceMode(Modes::SLAVE);
+    Config.setDeviceMode(Modes.SLAVE);
 
     _webServer.send(200, "text/html", _parseHTML(htmlSuccess));
 
@@ -261,17 +256,24 @@ void ModuleCore::_setupSlaveMode()
 {
   _setupSlaveMode_wifi();
 
-  on("setDeviceName", [](JsonObject& in, JsonObject& out) {
+  on("setDeviceName", [](const JsonObject &in, const JsonObject &out) {
     String deviceName = in["deviceName"];
 
     Config.setDeviceName(deviceName);
   });
+
+  IPAddress serverIp; serverIp.fromString(Config.getServerIp());
+  uint16_t serverPort = Config.getServerPort().toInt();
+
+  _socket.onMessage([&](const JsonObject &message) {
+    _onMessage(message);
+  });
+
+  _socket.connect(serverIp, serverPort);
 }
 
 void ModuleCore::_setupSlaveMode_wifi()
 {
-  bool error = false;
-
   IPAddress ip; ip.fromString(Config.getServerIp());
   uint16_t port = Config.getServerPort().toInt();
 
@@ -283,7 +285,7 @@ void ModuleCore::_setupSlaveMode_wifi()
   #endif
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(Config.dataNetworkSsid(), Config.dataNetworkPassword());
+  WiFi.begin(Config.getNetworkSsid().c_str(), Config.getNetworkPassword().c_str());
 
   // Wait for connection
   while (WiFi.status() != WL_CONNECTED) {
@@ -298,11 +300,15 @@ void ModuleCore::_setupSlaveMode_wifi()
     Serial.println();
     Serial.print("Connected to: ");
     Serial.println(Config.getNetworkSsid());
+    Serial.print(ip);
+    Serial.print(":");
+    Serial.println(port);
   #endif
 }
 
 void ModuleCore::_loopSlaveMode()
 {
+  _socket.loop();
 }
 
 // Button
@@ -313,14 +319,14 @@ void ModuleCore::_setupResetButton()
 
 void ModuleCore::_loopResetButton()
 {
-  bool isPressed = digitaRead(RESET_BUTTON_PIN);
+  bool isPressed = digitalRead(_resetButtonPin);
 
   if (isPressed) {
-    _startPressReset = millis()
+    _startPressReset = millis();
   } else if (_startPressReset) {
     uint16_t holdTime = (uint16_t) (millis() - _startPressReset);
 
-    _startPressReset = NULL;
+    _startPressReset = 0;
 
     if (holdTime > 15000) {
       #ifdef MODULE_CAN_DEBUG
@@ -333,7 +339,7 @@ void ModuleCore::_loopResetButton()
         Serial.println("Long button reset press (5s). Config mode.");
       #endif
 
-      Config.setDeviceMode(Modes::CONFIG);
+      Config.setDeviceMode(Modes.CONFIG);
     } else {
       #ifdef MODULE_CAN_DEBUG
         Serial.println("Button reset press.");
@@ -348,31 +354,57 @@ void ModuleCore::_loopResetButton()
   }
 }
 
+// Events
 void ModuleCore::send(const char* topic)
 {
-  _modeSlave->send(topic);
+  StaticJsonDocument<PACKET_SIZE> doc;
+  JsonObject data = doc.to<JsonObject>();
+
+  send(topic, data);
 }
 
-void ModuleCore::send(const char* topic, JsonObject& data)
+void ModuleCore::send(const char* topic, const JsonObject &data)
 {
-  _modeSlave->send(topic, data);
+  StaticJsonDocument<PACKET_SIZE> doc;
+  JsonObject message = doc.to<JsonObject>();
+
+  message["moduleId"] = _id;
+  message["topic"]    = topic;
+  message["data"]     = data;
+
+  _socket.send(message);
 }
 
-void ModuleCore::on(const char* eventName, std::function<void(JsonObject& in, JsonObject& out)> cb)
+void ModuleCore::on(const char* eventName, std::function<void(const JsonObject &in, const JsonObject &out)> cb)
 {
-  _modeSlave->on(eventName, cb);
+  _events[eventName] = cb;
 }
 
-void ModuleCore::createArduinoAPI()
+void _onMessage(const JsonObject &message) {
+  StaticJsonDocument<PACKET_SIZE> doc;
+  JsonObject outData = doc.to<JsonObject>();
+
+  const char* replyTopic = message["replyTopic"];
+  const char* topic = message["topic"];
+  const JsonObject &data = message["data"];
+
+  _events[topic](data, outData);
+
+  if (replyTopic) {
+    send(replyTopic, outData);
+  }
+}
+
+void ModuleCore::createArduinoApi()
 {
-  on("pinMode", [](JsonObject& in, JsonObject& out) {
+  on("pinMode", [](const JsonObject &in, const JsonObject &out) {
     uint8_t pin = in["pin"];
     String mode = in["mode"];
 
     pinMode(pin, mode == "OUTPUT" ? OUTPUT : INPUT);
   });
 
-  on("digitalWrite", [](JsonObject& in, JsonObject& out) {
+  on("digitalWrite", [](const JsonObject &in, const JsonObject &out) {
     uint8_t pin  = in["pin"];
     String level = in["level"];
     Serial.println(pin);
@@ -381,7 +413,7 @@ void ModuleCore::createArduinoAPI()
     digitalWrite(pin, level == "1" ? HIGH : LOW);
   });
 
-  on("digitalRead", [](JsonObject& in, JsonObject& out) {
+  on("digitalRead", [](const JsonObject &in, const JsonObject &out) {
     uint8_t pin    = in["pin"];
     uint8_t level  = digitalRead(pin);
 
@@ -389,48 +421,51 @@ void ModuleCore::createArduinoAPI()
   });
 }
 
-bool ModuleCore::setApPassword(String password)
+void ModuleCore::setApPassword(String password)
 {
   _apPassword = password;
 }
 
-bool ModuleCore::setResetButtonPin(uint16_t pin)
+void ModuleCore::setResetButtonPin(uint16_t pin)
 {
   _resetButtonPin = pin;
 }
 
-bool ModuleCore::setLedStatusPin(uint16_t pin)
+void ModuleCore::setLedStatusPin(uint16_t pin)
 {
   _ledStatusPin = pin;
 }
 
-bool ModuleCore::isFirstBoot()
+bool ModuleCore::_isFirstBoot()
 {
-  return Config.getDeviceMode() != '0' && Config.getDeviceMode() != '1';
+  return Config.getDeviceMode() != Modes.CONFIG && Config.getDeviceMode() != Modes.SLAVE;
 }
 
 bool ModuleCore::isConfigMode()
 {
-  return Config.getDeviceMode() == '0';
+  return Config.getDeviceMode() == Modes.CONFIG;
 }
 
-String ModuleCore::getId() {
+String ModuleCore::getId()
+{
   return _id;
 }
 
-String ModuleCore::getType() {
+String ModuleCore::getType()
+{
   return _type;
 }
 
-String ModuleCore::getVersion() {
+String ModuleCore::getVersion()
+{
   return _version;
 }
 
 String ModuleCore::_parseHTML(String html)
 {
-  html.replace("{{ device-id }}", id);
-  html.replace("{{ device-type }}", type);
-  html.replace("{{ firmware-version }}", version);
+  html.replace("{{ device-id }}", _id);
+  html.replace("{{ device-type }}", _type);
+  html.replace("{{ firmware-version }}", _version);
   html.replace("{{ device-name }}", Config.getDeviceName());
   html.replace("{{ server-ip }}", Config.getServerIp());
   html.replace("{{ server-port }}", Config.getServerPort());

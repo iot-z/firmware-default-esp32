@@ -40,16 +40,16 @@ void ConfigClass::clear()
     save();
 }
 
-void ConfigClass::setDeviceMode(String value)
+void ConfigClass::setDeviceMode(char value)
 {
-    strcpy(_data.deviceMode, value.c_str());
+    strcpy(_data.deviceMode, String(value).c_str());
 
     save();
 }
 
-String ConfigClass::getDeviceMode()
+char ConfigClass::getDeviceMode()
 {
-    return String(_data.deviceMode);
+    return _data.deviceMode[0];
 }
 
 void ConfigClass::setDeviceName(String value)
