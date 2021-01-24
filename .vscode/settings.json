@@ -1,0 +1,11 @@
+{
+    "workbench.colorCustomizations": {
+        "editor.lineHighlightBackground": "#44475a",
+        "activityBar.background": "#56094A",
+        "titleBar.activeBackground": "#780D68",
+        "titleBar.activeForeground": "#FFFBFE"
+    },
+    "files.associations": {
+        "system_error": "cpp"
+    }
+}

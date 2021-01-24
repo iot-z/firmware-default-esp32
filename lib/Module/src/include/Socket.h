@@ -22,6 +22,7 @@ class Socket
     void connect();
     void disconnect();
     void onMessage(std::function<void(const JsonObject &message)> cb);
+    void onConnected(std::function<void()> cb);
 
     void loop();
     void send(const JsonObject &message);
@@ -30,9 +31,7 @@ class Socket
     uint16_t _port;
 
     std::function<void(const JsonObject &message)> _onMessageCb;
-
-    // uint8_t* _packetBuffer[PACKET_SIZE];
-    uint8_t* _packetBuffer = 0;
+    std::function<void()> _onConnectedCb;
 };
 
 #endif

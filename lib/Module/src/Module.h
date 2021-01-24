@@ -8,6 +8,6 @@
 
 #include "include/ModuleCore.h"
 
-static ModuleCore Module;
+static ModuleCore Module = ModuleCore::getInstance();
 
 #endif

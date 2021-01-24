@@ -3,6 +3,7 @@
  * @author: Renan Vaz <renan.c.vaz@gmail.com>
  */
 
+#include <StreamUtils.h>
 #include "Socket.h"
 
 WiFiClient client;
@@ -10,6 +11,10 @@ WiFiClient client;
 Socket::Socket()
 {
 
+}
+
+void Socket::onConnected(std::function<void()> cb) {
+  _onConnectedCb = cb;
 }
 
 void Socket::onMessage(std::function<void(const JsonObject &message)> cb) {
@@ -20,6 +25,8 @@ void Socket::connect(IPAddress ip, uint16_t port)
 {
   _ip = ip;
   _port = port;
+
+  client.setNoDelay(1);
 
   connect();
 }
@@ -35,12 +42,14 @@ void Socket::connect()
     Serial.print(".");
     #endif
 
-    delay(500);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 
   #ifdef MODULE_CAN_DEBUG
   Serial.println("Socket connected!");
   #endif
+
+  _onConnectedCb();
 }
 
 void Socket::disconnect()
@@ -51,23 +60,30 @@ void Socket::disconnect()
 void Socket::loop()
 {
   if (client.connected()) {
-    size_t _packetSize = client.available();
+    if (client.available()) {
+      String payload = "";
 
-    if (_packetSize) {
-      client.read(_packetBuffer, _packetSize);
-      _packetBuffer[_packetSize] = '\0';
+      while (client.available() > 0) {
+        char c = client.read();
+        payload += c;
+      }
 
       StaticJsonDocument<PACKET_SIZE> doc;
 
-      DeserializationError error = deserializeJson(doc, _packetBuffer);
+      DeserializationError error = deserializeJson(doc, payload);
 
       if (error) {
         #ifdef MODULE_CAN_DEBUG
-          Serial.println("Error on parsing payload:");
-          Serial.println(_packetBuffer);
+          Serial.println("Error on parsing payload: "+payload);
         #endif
       } else {
-        JsonObject message = doc.to<JsonObject>();
+        JsonObject message = doc.as<JsonObject>();
+
+        #ifdef MODULE_CAN_DEBUG
+          Serial.print("Received: ");
+          serializeJson(doc, Serial);
+          Serial.println("");
+        #endif
 
         _onMessageCb(message);
       }
@@ -79,10 +95,12 @@ void Socket::loop()
 
 void Socket::send(const JsonObject &message)
 {
-  serializeJson(message, client);
+  WriteBufferingStream bufferedClient{client, PACKET_SIZE};
+  serializeJson(message, bufferedClient);
 
   #ifdef MODULE_CAN_DEBUG
-    Serial.print("Send message: ");
-    Serial.println(message);
+    Serial.print("Sending: ");
+    serializeJson(message, Serial);
+    Serial.println("");
   #endif
 }

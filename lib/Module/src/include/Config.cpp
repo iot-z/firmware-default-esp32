@@ -21,7 +21,7 @@ void ConfigClass::save()
     EEPROM.begin(EEPROM_SIZE);
 
     for (uint16_t i = 0, l = sizeof(_data); i < l; i++){
-    EEPROM.write(ADDRESS_CONFIG + i, *((char*)&_data + i));
+        EEPROM.write(ADDRESS_CONFIG + i, *((char*)&_data + i));
     }
 
     EEPROM.end();

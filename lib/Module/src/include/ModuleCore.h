@@ -28,13 +28,26 @@ class ModuleCore
     String getType();
     String getVersion();
 
+    static ModuleCore& getInstance()
+    {
+      static ModuleCore instance;
+      return instance;
+    }
+
+    void print(String& message);
     void setup(String& id, String& type, String& version);
     void loop();
+
+    void setupOta();
+    void loopOta();
+
+    void setupResetButton();
+    void loopResetButton();
 
     void send(const char* topic);
     void send(const char* topic, const JsonObject &data);
 
-    void on(const char* eventName, std::function<void(const JsonObject &in, const JsonObject &out)> cb);
+    void on(String topic, std::function<void(const JsonObject &in, const JsonObject &out)> cb);
 
     void setResetButtonPin(uint16_t pin);
     void setLedStatusPin(uint16_t pin);
@@ -45,7 +58,7 @@ class ModuleCore
     bool isConfigMode();
 
   private:
-    uint8_t _resetButtonPin = 21; // D15
+    uint8_t _resetButtonPin = 15; // D15
     uint8_t _ledStatusPin = LED_BUILTIN;
     String _apPassword = "123456789";
 
@@ -53,10 +66,10 @@ class ModuleCore
     String _type;
     String _version;
 
-    std::map<const char*, std::function<void(const JsonObject &in, const JsonObject &out)>> _events;
+    String _htmlIndex;
+    String _htmlSuccess;
 
-    void _setupOta();
-    void _loopOta();
+    std::map<String, std::function<void(const JsonObject &in, const JsonObject &out)>> _events;
 
     void _setupConfigMode();
     void _loopConfigMode();
@@ -71,14 +84,12 @@ class ModuleCore
 
     void _setupSlaveMode_wifi();
 
-    void _setupResetButton();
-    void _loopResetButton();
-
     bool _isFirstBoot();
 
     String _parseHTML(String html);
 
     void _onMessage(const JsonObject &message);
+    void _onConnected();
 };
 
 #endif

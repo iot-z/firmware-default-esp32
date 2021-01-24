@@ -16,8 +16,65 @@ WebServer _webServer(80);
 
 Socket _socket;
 
+
+void  ModuleCore (void * _module)
+{
+  ModuleCore module = ModuleCore::getInstance();
+
+  for(;;) {
+    module.loop();
+
+    vTaskDelay(1);
+  }
+
+  vTaskDelete(NULL);
+}
+
+void taskResetButton(void * _module)
+{
+  ModuleCore module = ModuleCore::getInstance();
+
+  module.setupResetButton();
+
+  for(;;) {
+    module.loopResetButton();
+
+    vTaskDelay(1);
+  }
+
+  vTaskDelete(NULL);
+}
+
+void taskOta(void * _module)
+{
+  ModuleCore module = ModuleCore::getInstance();
+
+  module.setupOta();
+
+  for(;;) {
+    module.loopOta();
+
+    vTaskDelay(1);
+  }
+
+  vTaskDelete(NULL);
+}
+
 ModuleCore::ModuleCore()
 {
+}
+
+void ModuleCore::print(String message)
+{
+  print(String(message));
+}
+
+
+void ModuleCore::print(String& message)
+{
+  #ifdef MODULE_CAN_DEBUG
+    Serial.println(message);
+  #endif
 }
 
 void ModuleCore::setup(String& id, String& type, String& version)
@@ -28,34 +85,31 @@ void ModuleCore::setup(String& id, String& type, String& version)
 
   Config.load();
 
-  _setupResetButton();
-
   if (_isFirstBoot()) {
-    #ifdef MODULE_CAN_DEBUG
-      Serial.println("First boot. Formating...");
-    #endif
+    print("First boot. Formating...");
 
     Config.clear(); // Clear EEPROM data
     Config.setDeviceMode(Modes.CONFIG);
 
-    #ifdef MODULE_CAN_DEBUG
-      Serial.println("Restarting...");
-    #endif
+    print("Restarting...");
 
     ESP.restart();
   }
+
+  xTaskCreatePinnedToCore(taskResetButton, "taskResetButton", 1024 * 4, NULL, 2, NULL, 1);
 
   if (isConfigMode()) {
     _setupConfigMode();
   } else {
     _setupSlaveMode();
   }
+
+  xTaskCreatePinnedToCore(taskModule, "  ", 1024 * 16, NULL, 3, NULL, 1);
+  xTaskCreatePinnedToCore(taskOta, "taskOta", 1024 * 4, NULL, 1, NULL, 1);
 }
 
 void ModuleCore::loop()
 {
-  _loopResetButton();
-
   if (isConfigMode()) {
     _loopConfigMode();
   } else {
@@ -63,7 +117,8 @@ void ModuleCore::loop()
   }
 }
 
-void ModuleCore::_setupOta()
+// OTA
+void ModuleCore::setupOta()
 {
   ArduinoOTA.setPort(3232);
   ArduinoOTA.setHostname("iotz.ota");
@@ -81,54 +136,36 @@ void ModuleCore::_setupOta()
       SPIFFS.end();
     }
 
-    Serial.println("Iniciando OTA - " + s);
+    print("Iniciando OTA - " + s);
   });
 
   // Fim
   ArduinoOTA.onEnd([](){
-    #ifdef MODULE_CAN_DEBUG
-      Serial.println("OTA Concluído.");
-    #endif
+    print("OTA Concluído.");
   });
 
   // Progresso
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    #ifdef MODULE_CAN_DEBUG
-      Serial.print(progress * 100 / total);
-      Serial.print(" ");
-    #endif
+    print(progress * 100 / total);
+    print(" ");
   });
 
   // Falha
   ArduinoOTA.onError([](ota_error_t error) {
-    #ifdef MODULE_CAN_DEBUG
-      Serial.print("Erro " + String(error) + " ");
-    #endif
+    print("Erro " + String(error) + " ");
 
     if (error == OTA_AUTH_ERROR) {
-      #ifdef MODULE_CAN_DEBUG
-        Serial.println("Falha de autorização");
-      #endif
+      print("Falha de autorização");
     } else if (error == OTA_BEGIN_ERROR) {
-      #ifdef MODULE_CAN_DEBUG
-        Serial.println("Falha de inicialização");
-      #endif
+      print("Falha de inicialização");
     } else if (error == OTA_CONNECT_ERROR) {
-      #ifdef MODULE_CAN_DEBUG
-        Serial.println("Falha de conexão");
-      #endif
+      print("Falha de conexão");
     } else if (error == OTA_RECEIVE_ERROR) {
-      #ifdef MODULE_CAN_DEBUG
-        Serial.println("Falha de recebimento");
-      #endif
+      print("Falha de recebimento");
     } else if (error == OTA_END_ERROR) {
-      #ifdef MODULE_CAN_DEBUG
-        Serial.println("Falha de finalização");
-      #endif
+      print("Falha de finalização");
     } else {
-      #ifdef MODULE_CAN_DEBUG
-        Serial.println("Falha desconhecida");
-      #endif
+      print("Falha desconhecida");
     }
   });
 
@@ -136,9 +173,46 @@ void ModuleCore::_setupOta()
   ArduinoOTA.begin();
 }
 
-void ModuleCore::_loopOta()
+void ModuleCore::loopOta()
 {
   ArduinoOTA.handle();
+}
+
+// Button
+void ModuleCore::setupResetButton()
+{
+  pinMode(_resetButtonPin, INPUT_PULLUP);
+}
+
+void ModuleCore::loopResetButton()
+{
+  bool isPressed = !digitalRead(_resetButtonPin);
+
+  if (isPressed) {
+    if (_startPressReset == 0) {
+      _startPressReset = xTaskGetTickCount() / portTICK_PERIOD_MS;
+    }
+  } else if (_startPressReset > 0) {
+    uint16_t holdTime = (uint16_t) ((xTaskGetTickCount() / portTICK_PERIOD_MS) - _startPressReset);
+
+    _startPressReset = 0;
+
+    if (holdTime > 15000) {
+      print("Long button reset press (15s). Clear data.");
+
+      Config.clear();
+    } else if (holdTime > 5000) {
+      print("Long button reset press (5s). Config mode.");
+
+      Config.setDeviceMode(Modes.CONFIG);
+    } else {
+      print("Button reset press.");
+    }
+
+    print("Restarting...");
+
+    ESP.restart();
+  }
 }
 
 // Cofig mode
@@ -160,7 +234,7 @@ void ModuleCore::_setupConfigMode_wifi()
   String ssid = "Module - ";
   ssid += _type;
   ssid += " (";
-  ssid += deviceName[0] != '\0' ? deviceName : String("Unamed ") + String(random(0xffff), HEX);
+  ssid += deviceName[0] != '\0' ? deviceName : String(random(0xffff), HEX);
   ssid += ")";
 
   WiFi.setHostname("iotz.local");
@@ -168,21 +242,16 @@ void ModuleCore::_setupConfigMode_wifi()
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ssid.c_str(), _apPassword.c_str());
 
-  #ifdef MODULE_CAN_DEBUG
-    Serial.print("SSID: ");
-    Serial.println(ssid);
-    Serial.print("PASS: ");
-    Serial.println(_apPassword);
-    Serial.print("Local server address: ");
-    Serial.println(WiFi.softAPIP());
-  #endif
+  print("SSID: ");
+  print(ssid);
+  print("PASS: ");
+  print(_apPassword);
+  print("Local server address: ");
+  print(WiFi.softAPIP());
 }
 
 void ModuleCore::_setupConfigMode_webServer()
 {
-  String htmlIndex;
-  String htmlSuccess;
-
   // Init SPIFFS for load the index.html file
   SPIFFS.begin();
 
@@ -191,24 +260,20 @@ void ModuleCore::_setupConfigMode_webServer()
   File fileSuccess = SPIFFS.open("/success.html", "r");
 
   if (fileIndex) {
-    htmlIndex = fileIndex.readString();
+    _htmlIndex = fileIndex.readString();
   } else {
-    #ifdef MODULE_CAN_DEBUG
-      Serial.println("ERROR on loading \"index.html\" file");
-    #endif
+    print("ERROR on loading \"index.html\" file");
   }
 
   if (fileSuccess) {
-    htmlSuccess = fileSuccess.readString();
+    _htmlSuccess = fileSuccess.readString();
   } else {
-    #ifdef MODULE_CAN_DEBUG
-      Serial.println("ERROR on loading \"success.html\" file");
-    #endif
+    print("ERROR on loading \"success.html\" file");
   }
 
   // Start the server
   _webServer.on("/", HTTP_GET, [&]() {
-    _webServer.send(200, "text/html", _parseHTML(htmlIndex));
+    _webServer.send(200, "text/html", _parseHTML(_htmlIndex));
   });
 
   _webServer.on("/", HTTP_POST, [&]() {
@@ -218,14 +283,9 @@ void ModuleCore::_setupConfigMode_webServer()
     String serverIp   = _webServer.arg("server-ip");
     String serverPort = _webServer.arg("server-port");
 
-    #ifdef MODULE_CAN_DEBUG
-      Serial.print("Device name: ");
-      Serial.println(deviceName);
-      Serial.print("SSID:");
-      Serial.println(ssid);
-      Serial.print("Password:");
-      Serial.println(password);
-    #endif
+    print("Device name: "+deviceName);
+    print("Password: "+password);
+    print("Server address: "+serverIp+":"+serverPort);
 
     Config.setDeviceName(deviceName);
     Config.setNetworkSsid(ssid);
@@ -234,11 +294,11 @@ void ModuleCore::_setupConfigMode_webServer()
     Config.setServerPort(serverPort);
     Config.setDeviceMode(Modes.SLAVE);
 
-    _webServer.send(200, "text/html", _parseHTML(htmlSuccess));
+    _webServer.send(200, "text/html", _parseHTML(_htmlSuccess));
 
-    #ifdef MODULE_CAN_DEBUG
-      Serial.println("Restarting...");
-    #endif
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+    print("Restarting...");
 
     ESP.restart();
   });
@@ -269,23 +329,25 @@ void ModuleCore::_setupSlaveMode()
     _onMessage(message);
   });
 
+  _socket.onConnected([&]() {
+    _onConnected();
+  });
+
   _socket.connect(serverIp, serverPort);
 }
 
 void ModuleCore::_setupSlaveMode_wifi()
 {
-  IPAddress ip; ip.fromString(Config.getServerIp());
-  uint16_t port = Config.getServerPort().toInt();
+  String ssid = Config.getNetworkSsid().c_str();
+  String password = Config.getNetworkPassword().c_str();
 
-  #ifdef MODULE_CAN_DEBUG
-    Serial.print("Try to connect to: ");
-    Serial.println(Config.getNetworkSsid());
-    Serial.print("With password: ");
-    Serial.println(Config.getNetworkPassword());
-  #endif
+  print("Try to connect to: ");
+  print(ssid);
+  print("With password: ");
+  print(password);
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(Config.getNetworkSsid().c_str(), Config.getNetworkPassword().c_str());
+  WiFi.begin(ssid.c_str(), password.c_str());
 
   // Wait for connection
   while (WiFi.status() != WL_CONNECTED) {
@@ -293,65 +355,17 @@ void ModuleCore::_setupSlaveMode_wifi()
       Serial.print(".");
     #endif
 
-    delay(500);
+    vTaskDelay(500 / portTICK_PERIOD_MS);
   }
 
-  #ifdef MODULE_CAN_DEBUG
-    Serial.println();
-    Serial.print("Connected to: ");
-    Serial.println(Config.getNetworkSsid());
-    Serial.print(ip);
-    Serial.print(":");
-    Serial.println(port);
-  #endif
+  print("");
+  print("Connected to: ");
+  print(Config.getNetworkSsid());
 }
 
 void ModuleCore::_loopSlaveMode()
 {
   _socket.loop();
-}
-
-// Button
-void ModuleCore::_setupResetButton()
-{
-  pinMode(_resetButtonPin, INPUT_PULLDOWN);
-}
-
-void ModuleCore::_loopResetButton()
-{
-  bool isPressed = digitalRead(_resetButtonPin);
-
-  if (isPressed) {
-    _startPressReset = millis();
-  } else if (_startPressReset) {
-    uint16_t holdTime = (uint16_t) (millis() - _startPressReset);
-
-    _startPressReset = 0;
-
-    if (holdTime > 15000) {
-      #ifdef MODULE_CAN_DEBUG
-        Serial.println("Long button reset press (15s). Clear data.");
-      #endif
-
-      Config.clear();
-    } else if (holdTime > 5000) {
-      #ifdef MODULE_CAN_DEBUG
-        Serial.println("Long button reset press (5s). Config mode.");
-      #endif
-
-      Config.setDeviceMode(Modes.CONFIG);
-    } else {
-      #ifdef MODULE_CAN_DEBUG
-        Serial.println("Button reset press.");
-      #endif
-    }
-
-    #ifdef MODULE_CAN_DEBUG
-      Serial.println("Restarting...");
-    #endif
-
-    ESP.restart();
-  }
 }
 
 // Events
@@ -375,22 +389,41 @@ void ModuleCore::send(const char* topic, const JsonObject &data)
   _socket.send(message);
 }
 
-void ModuleCore::on(const char* eventName, std::function<void(const JsonObject &in, const JsonObject &out)> cb)
+void ModuleCore::on(String topic, std::function<void(const JsonObject &in, const JsonObject &out)> listener)
 {
-  _events[eventName] = cb;
+  print("Add listener: "+topic);
+
+  _events[topic] = listener;
 }
 
-void _onMessage(const JsonObject &message) {
+void ModuleCore::_onConnected() {
+  StaticJsonDocument<PACKET_SIZE> doc;
+  JsonObject data = doc.to<JsonObject>();
+
+  data["name"]     = Config.getDeviceName();
+  data["type"]     = _type;
+  data["version"]  = _version;
+  Serial.println("onConnected");
+
+  send("_identify", data);
+}
+
+void ModuleCore::_onMessage(const JsonObject &message) {
   StaticJsonDocument<PACKET_SIZE> doc;
   JsonObject outData = doc.to<JsonObject>();
 
-  const char* replyTopic = message["replyTopic"];
-  const char* topic = message["topic"];
-  const JsonObject &data = message["data"];
+  String topic = message["topic"];
+  const JsonObject data = message["data"];
 
-  _events[topic](data, outData);
+  if (_events.count(topic)) {
+    _events.at(topic)(data, outData);
+  } else {
+    print("Topic not found: "+topic);
+  }
 
-  if (replyTopic) {
+  if (message.containsKey("_")) {
+    const char* replyTopic = message["_"];
+
     send(replyTopic, outData);
   }
 }
