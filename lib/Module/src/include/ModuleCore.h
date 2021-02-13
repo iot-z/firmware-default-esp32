@@ -34,7 +34,6 @@ class ModuleCore
       return instance;
     }
 
-    void print(String& message);
     void setup(String& id, String& type, String& version);
     void loop();
 

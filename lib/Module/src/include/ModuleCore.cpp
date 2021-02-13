@@ -17,12 +17,10 @@ WebServer _webServer(80);
 Socket _socket;
 
 
-void ModuleCore(void * _module)
+void taskModule (void * _module)
 {
-  ModuleCore module = ModuleCore::getInstance();
-
   for(;;) {
-    module.loop();
+    ModuleCore::getInstance().loop();
 
     vTaskDelay(1);
   }
@@ -32,12 +30,10 @@ void ModuleCore(void * _module)
 
 void taskResetButton(void * _module)
 {
-  ModuleCore module = ModuleCore::getInstance();
-
-  module.setupResetButton();
+  ModuleCore::getInstance().setupResetButton();
 
   for(;;) {
-    module.loopResetButton();
+    ModuleCore::getInstance().loopResetButton();
 
     vTaskDelay(1);
   }
@@ -47,12 +43,8 @@ void taskResetButton(void * _module)
 
 void taskOta(void * _module)
 {
-  ModuleCore module = ModuleCore::getInstance();
-
-  module.setupOta();
-
   for(;;) {
-    module.loopOta();
+    ModuleCore::getInstance().loopOta();
 
     vTaskDelay(1);
   }
