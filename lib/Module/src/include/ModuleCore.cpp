@@ -242,7 +242,7 @@ void ModuleCore::_setupConfigMode_wifi()
 {
   String deviceName = Config.getDeviceName();
 
-  String ssid = "Module - ";
+  String ssid = "IOTZ - ";
   ssid += _type;
   ssid += " (";
   ssid += deviceName[0] != '\0' ? deviceName : String(random(0xffff), HEX);
