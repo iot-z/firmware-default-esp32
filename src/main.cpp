@@ -18,11 +18,64 @@ struct CI_CD4051_Struct
   int s1 = 3;
   int s2 = 4;
 
-  int read[] = {1, 2, 3};
+  int read[3] = {1, 2, 3};
 } CI_CD4051;
 
 int STATE = 0;
 int STATE_LAST = 0;
+
+
+int readMux()
+{
+  int state = 0;
+
+  int b0;
+  int b1;
+  int b2;
+
+  int value;
+
+  int i, iLen, k, kLen;
+
+  for (i = 0, iLen = 2; i <= iLen; i++) {
+    for (k = 0, kLen = 7; k <= kLen; i++) {
+      b0 = bitRead(k, 0);
+      b1 = bitRead(k, 1);
+      b2 = bitRead(k, 2);
+
+      digitalWrite(CI_CD4051.s0, b0);
+      digitalWrite(CI_CD4051.s1, b1);
+      digitalWrite(CI_CD4051.s2, b2);
+
+      value = digitalRead(CI_CD4051.read[i]);
+
+      bitWrite(state, k + (8 * i), value);
+    }
+  }
+
+  Serial.println(state, BIN);
+
+  return state;
+}
+
+void pulse(int state)
+{
+  byte off = 0b00000000;
+
+  digitalWrite(CI_74HC595.latch, LOW);
+  shiftOut(CI_74HC595.data, CI_74HC595.clock, LSBFIRST, (state >> (8*0)) & 0xff);
+  shiftOut(CI_74HC595.data, CI_74HC595.clock, LSBFIRST, (state >> (8*1)) & 0xff);
+  shiftOut(CI_74HC595.data, CI_74HC595.clock, LSBFIRST, (state >> (8*2)) & 0xff);
+  digitalWrite(CI_74HC595.latch, HIGH);
+
+  delay(1000);
+
+  digitalWrite(CI_74HC595.latch, LOW);
+  shiftOut(CI_74HC595.data, CI_74HC595.clock, LSBFIRST, off);
+  shiftOut(CI_74HC595.data, CI_74HC595.clock, LSBFIRST, off);
+  shiftOut(CI_74HC595.data, CI_74HC595.clock, LSBFIRST, off);
+  digitalWrite(CI_74HC595.latch, HIGH);
+}
 
 void setup()
 {
@@ -46,7 +99,7 @@ void setup()
     serializeJsonPretty(in, Serial);
     Serial.println("");
 
-    pulse(in['state']);
+    pulse(in["state"]);
   });
 
   pinMode(CI_74HC595.latch, OUTPUT);
@@ -64,64 +117,14 @@ void setup()
 
 void loop()
 {
-  STATE = read();
+  STATE = readMux();
 
   if (STATE != STATE_LAST) {
     StaticJsonDocument<PACKET_SIZE> doc;
     JsonObject data = doc.to<JsonObject>();
 
-    Module.send('change', data);
+    Module.send("change", data);
   }
 
   delay(9);
-}
-
-int read() {
-  int state = 0;
-
-  int b0;
-  int b1;
-  int b2;
-
-  int value;
-
-  int i, iLen, k, kLen;
-
-  for (i = 0, iLen = 2; i <= iLen; i++) {
-    for (k = 0, kLen = 7; k <= kLen; i++) {
-      r0 = bitRead(k, 0);
-      r1 = bitRead(k, 1);
-      r2 = bitRead(k, 2);
-
-      digitalWrite(s0, r0);
-      digitalWrite(s1, r1);
-      digitalWrite(s2, r2);
-
-      value = digitalRead(CI_CD4051.read[i]);
-
-      bitwrite(state, k + (8 * i), value);
-    }
-  }
-
-  Serial.println(state, BIN);
-
-  return state;
-}
-
-void pulse(int state) {
-  byte off = 0b00000000;
-
-  digitalWrite(CI_74HC595.latch, LOW);
-  shiftOut(CI_74HC595.data, CI_74HC595.clockPin, LSBFIRST, (state >> (8*0)) & 0xff);
-  shiftOut(CI_74HC595.data, CI_74HC595.clockPin, LSBFIRST, (state >> (8*1)) & 0xff);
-  shiftOut(CI_74HC595.data, CI_74HC595.clockPin, LSBFIRST, (state >> (8*2)) & 0xff);
-  digitalWrite(CI_74HC595.latch, HIGH);
-
-  delay(1000);
-
-  digitalWrite(CI_74HC595.latch, LOW);
-  shiftOut(CI_74HC595.data, CI_74HC595.clockPin, LSBFIRST, off);
-  shiftOut(CI_74HC595.data, CI_74HC595.clockPin, LSBFIRST, off);
-  shiftOut(CI_74HC595.data, CI_74HC595.clockPin, LSBFIRST, off);
-  digitalWrite(CI_74HC595.latch, HIGH);
 }
