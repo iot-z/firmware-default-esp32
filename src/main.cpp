@@ -45,6 +45,8 @@ void setup()
   Module.on("pulse", [&](const JsonObject &in, const JsonObject &out) {
     serializeJsonPretty(in, Serial);
     Serial.println("");
+
+    pulse(in['state']);
   });
 
   pinMode(CI_74HC595.latch, OUTPUT);
@@ -71,17 +73,7 @@ void loop()
     Module.send('change', data);
   }
 
-  int status = digitalRead(34);
-
-  if (status != currentStatus) {
-    time_t now = millis();
-    Serial.print(status ? "ON" : "OFF");
-    Serial.print(" ");
-    Serial.println(now - oldtime);
-    currentStatus = status;
-    oldtime = now;
-    delay(9);
-  }
+  delay(9);
 }
 
 int read() {
@@ -119,17 +111,17 @@ int read() {
 void pulse(int state) {
   byte off = 0b00000000;
 
-  digitalWrite(latchPin, LOW);
+  digitalWrite(CI_74HC595.latch, LOW);
   shiftOut(CI_74HC595.data, CI_74HC595.clockPin, LSBFIRST, (state >> (8*0)) & 0xff);
   shiftOut(CI_74HC595.data, CI_74HC595.clockPin, LSBFIRST, (state >> (8*1)) & 0xff);
   shiftOut(CI_74HC595.data, CI_74HC595.clockPin, LSBFIRST, (state >> (8*2)) & 0xff);
-  digitalWrite(latchPin, HIGH);
+  digitalWrite(CI_74HC595.latch, HIGH);
 
   delay(1000);
 
-  digitalWrite(latchPin, LOW);
+  digitalWrite(CI_74HC595.latch, LOW);
   shiftOut(CI_74HC595.data, CI_74HC595.clockPin, LSBFIRST, off);
   shiftOut(CI_74HC595.data, CI_74HC595.clockPin, LSBFIRST, off);
   shiftOut(CI_74HC595.data, CI_74HC595.clockPin, LSBFIRST, off);
-  digitalWrite(latchPin, HIGH);
+  digitalWrite(CI_74HC595.latch, HIGH);
 }
